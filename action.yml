@@ -29,6 +29,10 @@ inputs:
   github_token:
     description: 'Public encryption key. Should be: `$GH_BUILDS_RSA_PUBLIC`'
     required: true
+  scope_path:
+    description: 'Base directory path where all artifacts will be extracted. Paths in download_artifacts_json will be relative to this directory.'
+    default: '.'
+    required: false
 
 runs:
   using: "composite"
@@ -43,7 +47,7 @@ runs:
       run: |
         
         echo "Starting to download artifacts represented by JSON array: ${{ inputs.download_artifacts_json }}"
-
+        
         # Exit if download_artifacts_json is empty
         if [ "${{ inputs.download_artifacts_json }}" == "[]" ]; then
           echo "No artifacts specified for download. Exiting."
@@ -53,6 +57,65 @@ runs:
         # Create temporary directory for downloads
         TEMP_DIR=$(mktemp -d)
         echo "Created temporary directory: $TEMP_DIR"
+        
+        # Ensure scope_path exists and is absolute
+        SCOPE_PATH="${{ inputs.scope_path }}"
+        if [[ ! "$SCOPE_PATH" = /* ]]; then
+          # Convert relative path to absolute
+          SCOPE_PATH="$(pwd)/$SCOPE_PATH"
+        fi
+        
+        # Remove trailing slash if present
+        SCOPE_PATH="${SCOPE_PATH%/}"
+        
+        echo "Using scope path: $SCOPE_PATH"
+        mkdir -p "$SCOPE_PATH"
+        
+        # Function to normalize and secure a path within scope_path
+        normalize_path() {
+          local input_path="$1"
+          local base_path="$2"
+        
+          # Remove leading slash if present
+          input_path="${input_path#/}"
+        
+          # Replace multiple slashes with a single slash
+          input_path=$(echo "$input_path" | sed 's|//+|/|g')
+        
+          # Remove leading ./ if present
+          input_path="${input_path#./}"
+        
+          # Process the path components to prevent path traversal
+          local result=""
+          local IFS="/"
+        
+          # Split the path and process each component
+          for component in $input_path; do
+            # Skip empty components and current directory markers
+            if [ -z "$component" ] || [ "$component" = "." ]; then
+              continue
+            fi
+        
+            # Skip parent directory markers (this prevents path traversal)
+            if [ "$component" = ".." ]; then
+              continue
+            fi
+        
+            # Add component to result
+            if [ -z "$result" ]; then
+              result="$component"
+            else
+              result="$result/$component"
+            fi
+          done
+        
+          # Combine with base path
+          if [ -z "$result" ]; then
+            echo "$base_path"
+          else
+            echo "$base_path/$result"
+          fi
+        }
         
         # Parse the JSON array
         artifacts=$(echo '${{ inputs.download_artifacts_json }}' | jq -c '.[]')
@@ -64,10 +127,15 @@ runs:
           path=$(echo "$artifact" | jq -r '.path')
           run_id=$(echo "$artifact" | jq -r '.run_id')
         
-          echo "Processing artifact: $name from run $run_id to path $path"
+          # Normalize the destination path relative to scope_path
+          safe_path=$(normalize_path "$path" "$SCOPE_PATH")
+        
+          echo "Processing artifact: $name from run $run_id"
+          echo "Original path: $path"
+          echo "Normalized path: $safe_path"
         
           # Create destination directory if it doesn't exist
-          mkdir -p "$(dirname "$path")"
+          mkdir -p "$safe_path"
         
           # Get artifact ID using GitHub API
           echo "Getting artifact ID for $name from run $run_id"
@@ -105,13 +173,12 @@ runs:
           fi
         
           # Extract artifact to specified path
-          echo "Extracting artifact to $path"
-          mkdir -p "$path"
-          unzip -q -o "$artifact_zip" -d "$path"
+          echo "Extracting artifact to $safe_path"
+          unzip -q -o "$artifact_zip" -d "$safe_path"
         
           # Verify extraction
           if [ $? -ne 0 ]; then
-            echo "::error::Failed to extract artifact $name to $path"
+            echo "::error::Failed to extract artifact $name to $safe_path"
             exit 1
           fi
         
