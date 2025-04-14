@@ -1,0 +1,123 @@
+# Copyright 2025 Voplica LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: 'Voplica Download Artifacts'
+description: 'An Action to download multiple artifacts from other another repository.'
+branding:
+  icon: 'download'
+  color: 'gray-dark'
+
+inputs:
+  repository:
+    description: 'The repository owner and the repository name joined together by "/".'
+    required: true
+  download_artifacts_json:
+    description: 'JSON array representing attached GitHub Action artifacts of the commit to be used for the build process. All files represented in the JSON array will be downloaded and used for the build process. The JSON array must be in the format: [{"name": "artifact name", "path": "artifact destination path relative to repository root folder", "run_id": "run id where to find the files"}].'
+    default: "[]"
+    required: false
+  github_token:
+    description: 'Public encryption key. Should be: `$GH_BUILDS_RSA_PUBLIC`'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Set GitHub Path
+      run: echo '${{ github.action_path }}' >> $GITHUB_PATH
+      shell: bash
+
+    - name: Download Artifacts
+      shell: bash
+      run: |
+        
+        echo "Starting to download artifacts represented by JSON array: ${{ inputs.download_artifacts_json }}"
+
+        # Exit if download_artifacts_json is empty
+        if [ "${{ inputs.download_artifacts_json }}" == "[]" ]; then
+          echo "No artifacts specified for download. Exiting."
+          exit 0
+        fi
+        
+        # Create temporary directory for downloads
+        TEMP_DIR=$(mktemp -d)
+        echo "Created temporary directory: $TEMP_DIR"
+        
+        # Parse the JSON array
+        artifacts=$(echo '${{ inputs.download_artifacts_json }}' | jq -c '.[]')
+        
+        # Process each artifact
+        echo "$artifacts" | while read -r artifact; do
+          # Parse artifact details
+          name=$(echo "$artifact" | jq -r '.name')
+          path=$(echo "$artifact" | jq -r '.path')
+          run_id=$(echo "$artifact" | jq -r '.run_id')
+        
+          echo "Processing artifact: $name from run $run_id to path $path"
+        
+          # Create destination directory if it doesn't exist
+          mkdir -p "$(dirname "$path")"
+        
+          # Get artifact ID using GitHub API
+          echo "Getting artifact ID for $name from run $run_id"
+          artifacts_url="https://api.github.com/repos/${{ inputs.repository }}/actions/runs/$run_id/artifacts"
+        
+          artifacts_response=$(curl -s -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token ${{ inputs.github_token }}" \
+            "$artifacts_url")
+        
+          artifact_id=$(echo "$artifacts_response" | jq -r ".artifacts[] | select(.name == \"$name\") | .id")
+        
+          if [ -z "$artifact_id" ] || [ "$artifact_id" == "null" ]; then
+            echo "::error::Artifact $name not found in run $run_id"
+            echo "Available artifacts in run $run_id:"
+            echo "$artifacts_response" | jq -r '.artifacts[].name'
+            exit 1
+          fi
+        
+          echo "Found artifact ID: $artifact_id"
+        
+          # Download artifact
+          download_url="https://api.github.com/repos/${{ inputs.repository }}/actions/artifacts/$artifact_id/zip"
+          echo "Downloading from: $download_url"
+        
+          # Download to temp directory
+          artifact_zip="$TEMP_DIR/${name}.zip"
+          curl -s -L -o "$artifact_zip" \
+            -H "Authorization: token ${{ inputs.github_token }}" \
+            "$download_url"
+        
+          # Check if download was successful
+          if [ ! -f "$artifact_zip" ] || [ ! -s "$artifact_zip" ]; then
+            echo "::error::Failed to download artifact $name (ID: $artifact_id)"
+            exit 1
+          fi
+        
+          # Extract artifact to specified path
+          echo "Extracting artifact to $path"
+          mkdir -p "$path"
+          unzip -q -o "$artifact_zip" -d "$path"
+        
+          # Verify extraction
+          if [ $? -ne 0 ]; then
+            echo "::error::Failed to extract artifact $name to $path"
+            exit 1
+          fi
+        
+          echo "Successfully downloaded and extracted artifact: $name"
+        done
+        
+        # Clean up temporary directory
+        rm -rf "$TEMP_DIR"
+        echo "All artifacts have been downloaded successfully!"
