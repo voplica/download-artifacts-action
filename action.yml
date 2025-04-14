@@ -42,6 +42,52 @@ runs:
       run: echo '${{ github.action_path }}' >> $GITHUB_PATH
       shell: bash
 
+    - name: Check and Install Dependencies
+      shell: bash
+      run: |
+        # Check if unzip is installed, install it if not
+        if ! command -v unzip &> /dev/null; then
+          echo "unzip command not found. Installing now..."
+        
+          # Detect OS and package manager
+          if command -v apt-get &> /dev/null; then
+            # Debian/Ubuntu
+            sudo apt-get update
+            sudo apt-get install -y unzip
+          elif command -v yum &> /dev/null; then
+            # RHEL/CentOS
+            sudo yum install -y unzip
+          elif command -v apk &> /dev/null; then
+            # Alpine
+            apk add --no-cache unzip
+          else
+            echo "::error::Cannot install unzip: Unsupported package manager"
+            exit 1
+          fi
+        fi
+        
+        # Check if jq is installed, install it if not
+        if ! command -v jq &> /dev/null; then
+          echo "jq command not found. Installing now..."
+        
+          # Detect OS and package manager
+          if command -v apt-get &> /dev/null; then
+            # Debian/Ubuntu
+            sudo apt-get update
+            sudo apt-get install -y jq
+          elif command -v yum &> /dev/null; then
+            # RHEL/CentOS
+            sudo yum install -y jq
+          elif command -v apk &> /dev/null; then
+            # Alpine
+            apk add --no-cache jq
+          else
+            echo "::error::Cannot install jq: Unsupported package manager"
+            exit 1
+          fi
+        fi
+        echo "All required dependencies are installed."
+
     - name: Download Artifacts
       shell: bash
       run: |
