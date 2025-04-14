@@ -140,11 +140,14 @@ runs:
           # Get artifact ID using GitHub API
           echo "Getting artifact ID for $name from run $run_id"
           artifacts_url="https://api.github.com/repos/${{ inputs.repository }}/actions/runs/$run_id/artifacts"
-        
+          echo "Artifacts list url: $artifacts_url"
+
           artifacts_response=$(curl -s -H "Accept: application/vnd.github.v3+json" \
             -H "Authorization: token ${{ inputs.github_token }}" \
             "$artifacts_url")
-        
+          
+          echo "Artifacts response: $artifacts_response"
+          
           artifact_id=$(echo "$artifacts_response" | jq -r ".artifacts[] | select(.name == \"$name\") | .id")
         
           if [ -z "$artifact_id" ] || [ "$artifact_id" == "null" ]; then
@@ -157,6 +160,7 @@ runs:
           echo "Found artifact ID: $artifact_id"
         
           # Download artifact
+          # Browser download URL: https://github.com/${{ inputs.repository }}/actions/runs/$run_id/artifacts/$artifact_id
           download_url="https://api.github.com/repos/${{ inputs.repository }}/actions/artifacts/$artifact_id/zip"
           echo "Downloading from: $download_url"
         
