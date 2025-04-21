@@ -52,14 +52,14 @@ runs:
           # Detect OS and package manager
           if command -v apt-get &> /dev/null; then
             # Debian/Ubuntu
-            sudo apt-get update
-            sudo apt-get install -y unzip
+            sudo apt-get -o DPkg::Lock::Timeout=600 update
+            sudo apt-get -o DPkg::Lock::Timeout=600 install -y unzip
           elif command -v yum &> /dev/null; then
             # RHEL/CentOS
             sudo yum install -y unzip
           elif command -v apk &> /dev/null; then
             # Alpine
-            apk add --no-cache unzip
+            apk add --wait 600 --no-cache unzip
           else
             echo "::error::Cannot install unzip: Unsupported package manager"
             exit 1
@@ -73,14 +73,14 @@ runs:
           # Detect OS and package manager
           if command -v apt-get &> /dev/null; then
             # Debian/Ubuntu
-            sudo apt-get update
-            sudo apt-get install -y jq
+            sudo apt-get -o DPkg::Lock::Timeout=600 update
+            sudo apt-get -o DPkg::Lock::Timeout=600 install -y jq
           elif command -v yum &> /dev/null; then
             # RHEL/CentOS
             sudo yum install -y jq
           elif command -v apk &> /dev/null; then
             # Alpine
-            apk add --no-cache jq
+            apk add --wait 600 --no-cache jq
           else
             echo "::error::Cannot install jq: Unsupported package manager"
             exit 1
